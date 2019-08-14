@@ -177,7 +177,7 @@ class TerrariumTester(unittest.TestCase):
         output, return_code = self._terrarium(command)
         self.assertEqual(return_code, 0)
         requirements_key = output[0].strip()
-        return requirements_key
+        return requirements_key.decode()
 
     def _add_requirements(self, *requirements):
         with open(self.requirements, 'a') as f:
@@ -212,6 +212,7 @@ class TerrariumTester(unittest.TestCase):
         expected_return_code = kwargs.pop('return_code', 0)
         output, return_code = self._install(*args, **kwargs)
         # Print output so it is displayed in the event of an error
+        output = tuple(l.decode() for l in output)
         sys.stdout.write('\n'.join(output))
         self.assertEqual(return_code, expected_return_code)
         return output
@@ -307,7 +308,7 @@ class TestTerrarium(TerrariumTester):
         # is not confused with a comment
         # If the #egg=foobar is removed, pip will fail
         self._add_requirements(
-            '-e git+git://github.com/PolicyStat/terrarium.git#egg=foobar',
+            '-e git+git://github.com/Automatic/terrarium.git#egg=foobar',
         )
         self.assertInstall()
         actual = self._can_import_requirements(
@@ -325,7 +326,7 @@ class TestTerrarium(TerrariumTester):
         self.assertEqual(return_code, 0)
         self.assertEqual(
             output[0].strip(),
-            'd41d8cd98f00b204e9800998ecf8427e',
+            b'd41d8cd98f00b204e9800998ecf8427e',
         )
 
     def test_install_replace_backup_exists(self):
@@ -584,6 +585,7 @@ class TestTerrarium(TerrariumTester):
             s3_secret_key='should_not_appear',
             s3_access_key='do_not_show_me',
         )
+        output = tuple(l.decode() for l in output)
         self.assertEqual(return_code, 0)
         self.assertTrue(
             output[1].startswith('Initialized with Namespace')
@@ -601,6 +603,7 @@ class TestTerrarium(TerrariumTester):
             'revert',
             target=self.target,
         )
+        output = tuple(l.decode() for l in output)
         self.assertEqual(return_code, 1)
 
         self._add_test_requirement()

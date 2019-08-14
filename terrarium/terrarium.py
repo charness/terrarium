@@ -2,6 +2,7 @@
 from __future__ import absolute_import
 
 import argparse
+from gettext import gettext as _
 import hashlib
 import os
 import sys
@@ -37,10 +38,10 @@ logger = getLogger(__name__)
 # http://www.astro.keele.ac.uk/oldusers/rno/Computing/File_magic.html
 MAGIC_NUM = {
     # magic code, offset
-    'ELF': ('.ELF', 0),
-    'GZIP': ('\x1f\x8b', 0),
-    'BZIP': ('\x42\x5a', 0),
-    'TAR': ('ustar', 257),
+    'ELF': (b'.ELF', 0),
+    'GZIP': (b'\x1f\x8b', 0),
+    'BZIP': (b'\x42\x5a', 0),
+    'TAR': (b'ustar', 257),
 }
 
 
@@ -86,7 +87,7 @@ def rmtree(path):
         else:
             os.unlink(path)
         return True
-    except OSError, why:
+    except OSError as why:
         logger.warn(
             'Failed to remove %s. '
             'Make sure you have permissions to this path. '
@@ -98,11 +99,11 @@ def rmtree(path):
 # Helper method to determine the actual type of the file without relying on the
 # file extension
 def get_type(path):
-    with open(path) as f:
+    with open(path, 'rb') as f:
         for file_type, magic in MAGIC_NUM.items():
             f.seek(magic[1])
             if magic[0] == f.read(len(magic[0])):
-                    return file_type
+                return file_type
     return None
 
 
@@ -118,7 +119,7 @@ class Terrarium(object):
         if self._digest is not None:
             return self._digest
         m = hashlib.new(self.args.digest_type)
-        m.update('\n'.join(self.requirements))
+        m.update('\n'.join(self.requirements).encode())
         self._digest = m.hexdigest()
         return self._digest
 
@@ -247,7 +248,7 @@ class Terrarium(object):
                 dest = os.path.join(
                     new_target, 'bin', 'terrarium_bootstrap.py')
                 shutil.copyfile(bootstrap, dest)
-                os.chmod(dest, 0744)
+                os.chmod(dest, 0o744)
             os.close(fd)
             os.unlink(bootstrap)
 
@@ -266,7 +267,7 @@ class Terrarium(object):
                         'Backing environment up to %s' % old_target_backup)
             try:
                 os.rename(old_target, old_target_backup)
-            except OSError, why:
+            except OSError as why:
                 logger.error(
                     'Failed to move environment out of the way. '
                     'Check that you have the correct permissions. '
@@ -284,7 +285,7 @@ class Terrarium(object):
         try:
             # move the new environment into the target's place
             os.rename(new_target, old_target)
-        except OSError, why:
+        except OSError as why:
             logger.error(
                 'Failed to move the new environment into the correct path. '
                 'Check that you have the correct permissions. '
@@ -303,15 +304,19 @@ class Terrarium(object):
     def replace_all_in_directory(
         location,
         old,
-        replace='__VIRTUAL_ENV__',
+        replace=b'__VIRTUAL_ENV__',
         binary=False,
     ):
+        if not isinstance(old, bytes):
+            old = old.encode()
+        if not isinstance(replace, bytes):
+            replace = replace.encode()
         for name in os.listdir(location):
             full_path = os.path.join(location, name)
             data = None
             if not os.path.isfile(full_path):
                 continue
-            with open(full_path) as f:
+            with open(full_path, 'rb') as f:
                 header = f.read(len(MAGIC_NUM['ELF']))
                 # Skip binary files
                 if binary or header != MAGIC_NUM['ELF']:
@@ -321,7 +326,7 @@ class Terrarium(object):
             new_data = data.replace(old, replace)
             if new_data == data:
                 continue
-            with open(full_path, 'w') as f:
+            with open(full_path, 'wb') as f:
                 data = f.write(new_data)
 
     @staticmethod
@@ -338,7 +343,7 @@ class Terrarium(object):
     def make_bin_dir_paths_absolute(bin_dir, target):
         Terrarium.replace_all_in_directory(
             bin_dir,
-            '__VIRTUAL_ENV__',
+            b'__VIRTUAL_ENV__',
             target,
         )
 
@@ -518,7 +523,7 @@ class Terrarium(object):
             raise OSError('Command {0} failed with error code {1}, output: {2}'
                           .format(cmd, pipe.returncode, out))
         # out: Python 3.6.3
-        version = out.strip().split()[1]
+        version = out.decode().strip().split()[1]
         return version.split('.')
 
     def make_remote_key(self):
@@ -982,6 +987,9 @@ def parse_args():
         command.add_argument('reqs', nargs=argparse.REMAINDER)
 
     args = ap.parse_args()
+    if not args.command:
+        # py2 does this internally; py3 doesn't
+        ap.error(_('too few arguments'))
     args.add_sensitive_arguments(*sensitive_arguments)
 
     if not boto and args.s3_bucket is not None:
