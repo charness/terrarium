@@ -647,9 +647,6 @@ def after_install(options, base):
     import os
     import tempfile
 
-    # Debug logging for virtualenv
-    logger.consumers = [({virtualenv_log_level}, sys.stdout)]
-
     home_dir, lib_dir, inc_dir, bin_dir = path_locations(base)
 
     # Update prefix and executable to point to the virtualenv
@@ -678,35 +675,43 @@ def after_install(options, base):
     except ImportError:  # Pip >= 10
         from pip._internal.commands.install import InstallCommand
 
-    # Debug logging for pip
-    if hasattr(pip, '_internal'):
-        pip._internal.logger.consumers = [({virtualenv_log_level}, sys.stdout)]
-    else:
-        pip.logger.consumers = [({virtualenv_log_level}, sys.stdout)]
-
     # If we are on a version of pip before 1.2, load version control modules
     # for installing 'editables'
     if hasattr(pip, 'version_control'):
         pip.version_control()
 
+    fd, file_path = tempfile.mkstemp()
+    with os.fdopen(fd, 'w') as f:
+        f.write('\n'.join(REQUIREMENTS))
+
     # Run pip install
+    c = None
+    options = None
     try:
         c = InstallCommand()
     except TypeError:
         try:
             from pip.baseparser import create_main_parser
         except ImportError:  # Pip >= 10
-            from pip._internal.baseparser import create_main_parser
-        main_parser = create_main_parser()
-        c = InstallCommand(main_parser)
+            try:
+                from pip._internal.baseparser import create_main_parser
+            except ImportError:  # Pip >= 19.3
+                from pip._internal.commands import create_command
+                from pip._internal.cli.main_parser import parse_command
+                _, options = parse_command(['install', '-r', file_path, '--ignore-installed'])
+                c = create_command('install')
+        if not c:
+            main_parser = create_main_parser()
+            c = InstallCommand(main_parser)
 
-    fd, file_path = tempfile.mkstemp()
-    with os.fdopen(fd, 'w') as f:
-        f.write('\n'.join(REQUIREMENTS))
-    options, args = c.parser.parse_args(['-r', file_path])
-    options.require_venv = True
-    options.ignore_installed = True
-    requirementSet = c.run(options, args)
+    if not options:
+        options, args = c.parser.parse_args(['-r', file_path])
+        options.require_venv = True
+        options.ignore_installed = True
+    if hasattr(c, 'main'):
+        c.main(options)
+    else:
+        c.run(options, args)
 
     os.unlink(file_path)
 
